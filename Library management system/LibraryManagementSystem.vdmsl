@@ -214,7 +214,7 @@ operations
                             ∧
                             result = TRUE
                 else
-                    result = FALSE  -- In case of an invalid borrowedResourceID
+                    result = FALSE  -- In case of an invalid borrowedResourceIDdsasd
 
 
 
