@@ -1,6 +1,6 @@
 types 
 String = seq of char;
-genre = <Action> | <Horror> | <drama>;   -- Enumeration of genres
+genre = <Action> | <Horror> | <drama>;   -- Enumeration of genreseirfhnbfvjdfenvhjfdnvjdbvefvujhbdjfvbdfjvbdfjvb djhvfhbdj
 author = <Danielle_Steel> | <StephenKing> | <Sidney_Sheldon>; -- Enumeration of authors
 title = <HarryPotter> | <TheLordOfTheRings> | <TheHobbit>; -- Enumeration of titles
 PhysicalResource = <Book> | <DVD>; -- Enumeration of physical resources
