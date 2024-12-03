@@ -1,0 +1,463 @@
+types 
+String = seq of char;
+genre = <Action> | <Horror> | <drama>;   -- Enumeration of genres
+author = <Danielle_Steel> | <StephenKing> | <Sidney_Sheldon>; -- Enumeration of authors
+title = <HarryPotter> | <TheLordOfTheRings> | <TheHobbit>; -- Enumeration of titles
+PhysicalResource = <Book> | <DVD>; -- Enumeration of physical resources
+EResource = <E_book> | <audio_book>; -- Enumeration of electronic resources
+MSType = <Basic> | <Premium>; -- Enumeration of membership types
+ReportType = <UsageStatistics> | <FinancialReport>; -- Enumeration of report types
+
+ 
+-- Defining the date type
+Date ::     day : nat1
+            month : nat1
+            year : nat
+            inv d == d.day >= 1 and d.day <= 31 and
+                      d.month >= 1 and d.month <= 12 and
+                      d.year >= 1900;  
+
+Member ::   name: String
+            MemberID: nat
+            Membershiptype: MSType
+            TeleNum: nat
+            FineNum: nat;
+
+BorrowedResource :: ID : nat
+                    BorrowerMember : Member
+                    ResourceType: PhysicalResource | EResource
+                    DueDate: Date
+                    borrowDuration: nat
+                    ReturnDate: Date
+                    BorrowLimit: nat;      -- in days
+
+Resource :: ResourceID: nat
+            ResourceType: PhysicalResource | EResource
+            Title: title
+            Author: author
+            Genre: genre
+            PopularityPoints: nat
+            Amount: nat;
+
+Reservation  :: ReservationID: nat
+                ResererreserverMember: Member
+                resource: Resource
+                isComplete: bool;
+
+Loan  :: loanID : nat
+         DueDate : Date
+         ReturnDate : Date
+         BorrowerMember : Member;
+
+
+
+values
+--all limits are in days
+BasicBooklimit = 5;
+BasicDVDlimit = 3;
+BasicEBook_AudioBooklimit = 4;
+PremiumBooklimit = 8;
+PremiumDVDlimit = 5;
+PremiumEBook_AudioBooklimit = 7;
+
+-- Current date
+currentYear  = 2024;  
+currentMonth = 11;     
+currentDay   = 1;
+
+
+
+state LibraryManagmenSystem of
+                                Members : Member-set
+                                Reservations : Reservation[*]
+                                Resources : Resource[*]
+                                BorrowedR  : BorrowedResource[*]
+
+
+                                -- Con 1: Borrowing limits vary by membership type and resource type
+                                inv mk_LibraryManagmenSystem(Members, Reservations, Resources, BorrowedR) ≜ forall br ⊆ rng BorrowedResources &
+                                    let m = br.BorrowerMember ⊆
+                                         (if m.Membershiptype = <Basic> then
+                                            (br.ResourceType = <Book> 1 ≥  br.BorrowLimit  ≤ BasicBooklimit) ∧
+                                            (br.ResourceType = <DVD> 1 ≥  br.BorrowLimit  ≤ BasicDVDlimit) ∧
+                                            (br.ResourceType = <E_Book> ∨ br.ResourceType = <Audio_Book> 1 ≥  br.BorrowLimit  ≤ BasicEBook_AudioBooklimit)
+                                        else
+                                            (br.ResourceType = <Book> 1 ≥ br.BorrowLimit  ≤ PremiumBooklimit) ∧
+                                            (br.ResourceType = <DVD> 1 ≥ br.BorrowLimit  ≤ PremiumDVDlimit) ∧
+                                            (br.ResourceType = <E_Book> ∨ br.ResourceType = <Audio_Book> 1 ≥ br.BorrowLimit  ≤ PremiumEBook_AudioBooklimit)
+                                          ) ∧ 
+
+                                    -- Con 2 : Borrowing durations vary by resource type
+
+                                    forall br ⊆ [*] rng BorrowedResources &
+                                            (br.ResourceType = <Book> ≥ br.BorrowLimit ≤ PremiumBooklimit) ∧
+                                            (br.ResourceType = <DVD> ≥ br.BorrowLimit ≤ PremiumDVDlimit) ∧
+                                            (br.ResourceType = <E_Book> ∨ br.ResourceType = <Audio_Book> ≥ br.BorrowLimit ≤ PremiumEBook_AudioBooklimit)
+                                            ∧
+                                    -- Con 3: A resource cannot be borrowed if all copies are checked out or reserved
+                                    forall res ⊆ [*] rng Resources &
+                                        (res.Amount ≥ len {br | br ⊆ [*] rng BorrowedResources ∧ br.ID = res.ResourceID} + 
+                                        len {r | r ⊆ [*] rng Reservations ∧ r.Resource.ResourceID = res.ResourceID ⊄ r.isComplete})
+
+                                        ∧
+                                    -- Con 4: member cannot borrow resources if they have overdue items or unpaid fines above a threshold
+                                    forall m in set rng Members & 
+                                        (m.FineNum ≤ 5 ∧ 
+                                        ∉ br ⊆ set rng BorrowedResources : 
+                                            br.BorrowerMember.MemberID = m.MemberID ∧ 
+                                            (br.ReturnDate.year < currentYear V 
+                                            (br.ReturnDate.year = currentYear ∧ 
+                                            (br.ReturnDate.month < currentMonth V 
+                                            (br.ReturnDate.month = currentMonth ∧ br.ReturnDate.day < currentDay)))))
+                                init mk_LibraryManagmenSystem(Members, Reservations, Resources, BorrowedR) ≜ Members = {}, Reservations = [], Resources = [], BorrowedR = []
+                                    
+end;
+
+--Ziad's Operations
+
+operations
+
+    -- This operation adds a new member to the library system.
+    RegisterNewMember(newMemberID: nat, newName: String, MSTofnewMember: MSType, newTeleNum: nat) result: bool -- i made it return boolean to insure that the new member is registered successfully
+        ext rd Members: Member-set
+        wr Members: Member-set
+        pre 
+            ∀ m ∈  Members: m.MemberID ≠ newMemberID  -- use the Universal quantification (∀) to ensure the MemberID is unique
+        post 
+            Members = Members~ ∪ {Member(name = newName, -- the telta after the variable means the value of the old (unchanged) variable but the variable without the telta means the value of the new (changed) variable
+                                        MemberID = newMemberID ∧
+                                        Membershiptype = MSTofnewMember ∧ 
+                                        TeleNum = newTeleNum) } ∧
+            result = TRUE  
+        
+
+    -- This operation Updates the information of a member.
+
+    UpdateMemberInfo(memberID: nat, newName: String, newMembershipType: MSType, newTeleNum: nat, newFineNum: nat) result: bool -- to indicate successful update
+        ext rd Members: Member-set
+        wr Members: Member-set
+        pre 
+              Members ≠ {} ∧ ∃ m ∈  Members: m.MemberID = memberID  -- use Existential quantification (∃) to the Ensure the member exists
+        post 
+            Members = (Members~ \ {m | m ∈ Members ∧ m.MemberID = memberID}) ∪ 
+                {Member(name = newName ∧ 
+                        MemberID = memberID ∧
+                        Membershiptype = newMembershipType ∧ 
+                        TeleNum = newTeleNum ∧ 
+                        FineNum = newFineNum)} ∧
+        result = TRUE  
+
+
+    --This operation removes a member from the library system.
+
+    RemoveMember(memberID: nat) result: bool -- to confirm successful removal of the member
+        ext rd Members: Member-set
+        wr Members: Member-set
+        pre 
+             Members ≠ {} ∧ ∃ m ∈  Members: m.MemberID = memberID  -- use Existential quantification (∃) to the Ensure the member exists
+        post 
+            Members' = Members \ {m | m ∈ set Members ∧ m.MemberID = memberID} ∧
+            result = TRUE  -- Indicate successful removal
+
+    
+    -- This operation borrows a resource.
+
+    BorrowResource(memberID: nat, resourceType: PhysicalResource | EResource, borrowDuration: nat)  result: bool
+        ext rd Members: Member-set
+        ext rd Resources: Resource[*]  
+        ext rd BorrowedR: BorrowedResource[*]  
+        wr BorrowedR: BorrowedResource[*]  
+        pre                                                             --The precondion checks the Existence of Member and Membership and Borrowing Limits and resource avilability
+            ∃ m ∈  Members: m.MemberID = memberID ∧ 
+            (if resourceType = <Book> then 
+                len {br | br in rng BorrowedR ∧ br.BorrowerMember.MemberID = memberID} < (if m.Membershiptype = <Basic> then BasicBooklimit else PremiumBooklimit) ∧
+                ∃ r in rng Resources: r.ResourceType = <Book> ∧ r.Amount > 0
+            else if resourceType = <DVD> then 
+                len {br | br in rng BorrowedR ∧ br.BorrowerMember.MemberID = memberID} < (if m.Membershiptype = <Basic> then BasicDVDlimit else PremiumDVDlimit) ∧
+                ∃ r in rng Resources: r.ResourceType = <DVD> ∧ r.Amount > 0
+            else if resourceType = <E_book> or resourceType = <Audio_Book> then 
+                len {br | br in rng BorrowedR ∧ br.BorrowerMember.MemberID = memberID} < (if m.Membershiptype = <Basic> then BasicEBook_AudioBooklimit else PremiumEBook_AudioBooklimit) ∧
+                ∃ r in rng Resources: r.ResourceType = resourceType ∧ r.Amount > 0
+            )
+        post 
+            BorrowedR = BorrowedR~ ∪ {BorrowedResource(ID = card BorrowedR + 1, 
+                                                    BorrowerMember = memberID.Member ∧ 
+                                                    ResourceType = resourceType ∧ 
+                                                    DueDate = Date(day = currentDay + borrowDuration, month = currentMonth, year = currentYear) ∧ 
+                                                    ReturnDate = Date(day =day~ + borrowDuration , month = currentMonth , year = currentYear))} ∧
+            result = TRUE  
+
+
+    -- This operation returns a resource.
+
+    ReturnBorrowedResource(borrowedResourceID: nat) result: bool
+        ext rd BorrowedR: BorrowedResource[*]
+        wr BorrowedR: BorrowedResource[*]
+        
+        pre 
+             BorrowedR ≠ [] ∧  ∃ br in seq BorrowedR: br.ID = borrowedResourceID  -- Ensure the BorrowedResource exists
+        
+        post 
+            let borrowedResource = {br | br in BorrowedR ∧ br.ID = borrowedResourceID} in
+                if card borrowedResource = 1 then
+                    let br = hd borrowedResource in
+                        -- Calculate overdue days based on the current date and DueDate
+                        let overdueDays = if currentYear > br.DueDate.year ∨
+                                        (currentYear = br.DueDate.year ∧ currentMonth > br.DueDate.month) ∨
+                                        (currentYear = br.DueDate.year ∧ currentMonth = br.DueDate.month ∧ currentDay > br.DueDate.day)
+                                        then max(0, (currentDay + (currentMonth - br.DueDate.month) * 30 + (currentYear - br.DueDate.year) * 365) - br.DueDate.day)
+                                        else 0
+                        in
+                            -- Update the BorrowedResource with the current return date and check for overdue conditions
+                            BorrowedR = (BorrowedR \ [br]) ∪
+                                        {br \ {ReturnDate ↦ Date(day = currentDay, month = currentMonth, year = currentYear)}}
+                            ∧
+                            result = TRUE
+                else
+                    result = FALSE  -- In case of an invalid borrowedResourceID
+
+
+
+    --this operation searches for a resource based on the resource genre, title and author.
+
+    SearchResource(searchGenre: genre, searchTitle: String, searchAuthor: String) result: Resource-set
+    ext rd Resources: Resource[*]
+    pre 
+        Resources ≠ [] ∧ ∃ res in seq Resources: res.Genre = searchGenre ∧ res.Title = searchTitle ∧ res.Author = searchAuthor -- Ensure at least one resource matches the search criteria
+    post 
+        result = {res | res in rng Resources ∧ res.Genre = searchGenre ∧ res.Title = searchTitle ∧ res.Author = searchAuthor}
+    
+
+--End of Ziad's operations
+
+
+--Ahmed abd elkader's operations
+
+calculateLateFee(DueDate : Date, ReturnDate : Date) feeAmount : nat
+    ext rd LateFeeRate : nat    
+    wr BorrowedResources : BorrowedResource[*]  
+    pre 
+        -- The ReturnDate must be after DueDate to incur a late fee
+        ReturnDate.year > DueDate.year ∨ 
+        (ReturnDate.year = DueDate.year ∧ ReturnDate.month > DueDate.month) ∨ 
+        (ReturnDate.year = DueDate.year ∧ ReturnDate.month = DueDate.month ∧ ReturnDate.day > DueDate.day)
+    post 
+        -- Calculate overdue days and apply the LateFeeRate to determine the feeAmount
+        feeAmount = 
+            if ReturnDate.year > DueDate.year then 
+                ((ReturnDate.year − DueDate.year) * 365 + (ReturnDate.month − DueDate.month) * 30 + (ReturnDate.day − DueDate.day)) * LateFeeRate
+            elseif ReturnDate.month > DueDate.month then
+                ((ReturnDate.month − DueDate.month) * 30 + (ReturnDate.day − DueDate.day)) * LateFeeRate
+            else 
+                (ReturnDate.day − DueDate.day) * LateFeeRate;
+
+
+
+
+
+CheckResourceAvailability(ResourceID : nat) isAvailable : bool
+    ext rd Resources : Resource[*];    
+        rd BorrowedResources : BorrowedResource[*];  
+        rd Reservations : Reservation[*]; 
+    pre 
+        -- The resource with ResourceID should exist in Resources
+        ∃ res ∈ Resources ∧ res.ResourceID = ResourceID
+    post 
+        -- isAvailable is true if the number of borrowed and reserved copies is less than the total amount
+        let res = {r ∈ Resources | r.ResourceID = ResourceID} in
+            isAvailable = 
+                res.Amount > 
+                card {br | br ∈ BorrowedResources ∧ br.ID = ResourceID} + 
+                card {r | r ∈ Reservations ∧ r.resource.ResourceID = ResourceID ∧ ¬r.isComplete};
+
+
+
+ListOverdueResource() overdueResources : BorrowedResource-set
+    ext rd BorrowedResources : BorrowedResource[*];
+    rd currentYear : nat;
+    rd currentMonth : nat;
+    rd currentDay : nat;
+    post 
+        -- overdueResources contains only borrowed resources where the DueDate is before the current date
+        overdueResources = {br | br ∈ BorrowedResources ∧ 
+                             (br.DueDate.year < currentYear ∨ 
+                             (br.DueDate.year = currentYear ∧ br.DueDate.month < currentMonth) ∨ 
+                             (br.DueDate.year = currentYear ∧ br.DueDate.month = currentMonth ∧ br.DueDate.day < currentDay))};
+
+RecommendationSystem(MemberID : nat) recommendations : set of Resource
+    ext rd Members : Member-set;                  
+        rd BorrowedResources : BorrowedResource[*];  
+        rd Resources : Resource[*];                 
+    pre 
+        ∃ m ∈ Members ∧ m.MemberID = MemberID
+    post 
+        -- recommendations are based on the most frequently borrowed genre or resource type by the member
+        let memberBorrowed = {br | br ∈ BorrowedResources ∧ br.BorrowerMember.MemberID = MemberID},
+            popularGenres = { br.Resource.Genre | br ∈ memberBorrowed },
+            popularResourceTypes = { br.Resource.ResourceType | br ∈ memberBorrowed } in
+            
+        -- Recommend resources that match these genres or types and have not yet been borrowed by the member
+        recommendations = 
+            { r | r ∈ Resources ∧ 
+                  r.Genre ∈ popularGenres ∧ 
+                  r.ResourceType ∈ popularResourceTypes ∧
+                  ¬∃ br ∈ memberBorrowed ∧ br.ID = r.ResourceID };
+
+
+
+
+GenerateReports(reportType : <UsageStatistics> | <FinancialReport>) reportData : map of String to nat
+    ext rd BorrowedResources : BorrowedResource[*];   
+        rd Resources : Resource[*];                   
+        rd Members : Member-set;                      
+    pre
+        reportType ∈ { <UsageStatistics>, <FinancialReport> }
+    post 
+        (if reportType = <UsageStatistics> then 
+            -- Usage Statistics report includes most popular resources and borrowing counts
+            let popularResources = { r.ResourceID ↦ r.PopularityPoints | r ∈ Resources },
+                totalBorrowed = card BorrowedResources in
+            reportData = { "MostPopularResourceID" ↦ (let maxResource = max({r | r ∈ popularResources}) in maxResource),
+                           "TotalBorrows" ↦ totalBorrowed }
+         else
+            -- Financial Report includes total fines collected from members
+            let totalFines = sum { m.FineNum | m ∈ Members } in
+            reportData = { "TotalFinesCollected" ↦ totalFines,
+                           "TotalMembers" ↦ card Members });
+
+
+--End of abdelkader's
+
+--Yassen's operations
+
+makeReservation(MemberIn : Member , ResourceIn : resource , ReservationID : Reservation) 
+    ext wr Reservations : Reservation[]
+
+    rd Members : Member-set
+    rd Resources : Resource[]
+
+    pre (ReservationID) ∉ Reservation and  MemberIn ∈ Members and resourceIn ∈ Resources
+    post  Reservations = Reservations~ ∧
+    [mk_Reservation(ReservationIDIn, MemberIn, ResourceIn, false)] and resourceIn U BorrowedResources 
+
+
+
+
+    cancelReservation(MemberID : nat)
+    ext wr Reservations : Reservation[]
+
+    pre ∃ i ∈ elems Reservations · i.ReservationID = ReservationIDIn and not i.isComplete
+    post Reservations = [i | i ∈ elems Reservations~ · 
+    i.ReservationID ≠ ReservationIDIn] and len Reservations = len Reservations~ - 1
+
+
+
+
+    completeReservation(ReservationIDIn : nat)
+    ext wr Reservations : Reservation[]
+
+    pre ∃ r ∈ elems Reservations · 
+    r.ReservationID = ReservationIDIn and not r.isComplete
+    post Reservations = [if r.ReservationID = ReservationIDIn 
+                    then mk_Reservation(r.ReservationID,
+                                      r.ResererreserverMember,
+                                      r.resource,
+                                      true)
+                    else r
+                    | r ∈ elems Reservations~] and
+    len Reservations = len Reservations~
+
+
+
+    renewBorrowedResource(BorrowedResourceIn : BorrowedResource)
+    ext wr BorrowedR : BorrowedResource[]
+    wr Resources : Resource[]
+
+    pre BorrowedResourceIn ∈ elems BorrowedR
+    post BorrowedR = [br | br ∈ elems BorrowedR~ · 
+                br.ID ≠ BorrowedResourceIn.ID] and
+                len BorrowedR = len BorrowedR~ - 1 and
+                Resources = Resources~ ∪ {BorrowedResourceIn}
+
+-- End of Yassen's operations
+
+
+-- Ahmed Dahroug's operations
+
+ UpdateResource(ResourceID : nat, newResource : Resource)
+    ext wr Resources : Resource-set
+    pre ∃ r ∈ Resources ∧ r.ResourceID = ResourceID
+    post Resources = { if r.ResourceID = ResourceID then newResource else r | r ∈ Resources };
+
+    CheckAvailability() : bool
+    ext rd Resources : Resource-set
+    post RESULT = ∃ r ∈ Resources ∧ r.Amount > 0;
+
+    ProcessFinePayments(MemberID : nat, Amount : nat)
+    ext wr Members : Member-set
+    pre ∃ member ∈ Members ∧ member.MemberID = MemberID
+    post let member ∈ Members be st member.MemberID = MemberID in
+             member.FineNum = member.FineNum - Amount;
+
+    InitiateAndProcessInterLibraryLoanRequests(resource : Resource, member : Member)
+    ext wr Resources : Resource-set
+       wr Members : Member-set
+    post skip; 
+
+        EventManagement(EventID : nat, MemberID : nat)
+    ext wr Events : Event-set
+        wr Members : Member-set
+    pre ∃ e ∈ Events ∧ e.EventID = EventID ∧ ∃ m ∈ Members ∧ m.MemberID = MemberID
+    post let e ∈ Events be st e.EventID = EventID in
+             e.RegisteredMembers = e.RegisteredMembers ∪ {m | m ∈ Members ∧ m.MemberID = MemberID};
+
+    DigitalAccessControl(MemberID : nat, ResourceID : nat) : bool
+    ext rd Members : Member-set
+        rd Resources : Resource-set
+    pre ∃ m ∈ Members ∧ m.MemberID = MemberID ∧ ∃ r ∈ Resources ∧ r.ResourceID = ResourceID ∧ (r.ResourceType = <E_Book> ∨ r.ResourceType = <Audio_Book>)
+    post RESULT = (let m ∈ Members be st m.MemberID = MemberID in
+                  let r ∈ Resources be st r.ResourceID = ResourceID in
+                      (m.Membershiptype = <Premium> ∨ (m.Membershiptype = <Basic> ∧ r.ResourceType = <E_Book>)));
+
+-- End of Ahmed dahroug's operations
+
+-- Abdallah's operations
+
+
+    /* AddResource: Adds a new resource to the library if it does not already exist. */
+
+    AddResource (new ResourceID: nat, newResourceType: PhysicalResource | EResource, newTitle: String, newAuthor: String, newGenre: genre, newPopularityPoints: nat, newAmount: nat) 
+ext wr Resources : seq of Resource
+pre ∉ res in set Resources & res.ResourceID = newResource.ResourceID
+post Resources = Resources~ ^ [newResource];
+
+
+    /* RemoveResource: Removes a resource from the library inventory based on its unique ResourceID. */
+
+    RemoveResource(new ResourceID: nat, newResourceType: PhysicalResource | EResource, newTitle: String, newAuthor: String, newGenre: genre, newPopularityPoints: nat, newAmount: nat) 
+ext wr Resources : seq of Resource
+pre ∈ res in set Resources & res.ResourceID = resourceID
+post Resources = [res | res in seq Resources & res.ResourceID <> resourceID];
+
+
+/* GeneratePopularityReport: Generates a popularity report by listing resources in descending order of PopularityPoints. */
+
+    GeneratePopularityReport() : seq of Resource
+ext rd Resources : seq of Resource
+pre Resources <> []
+post result = [res | res in seq sort Resources by descending res.PopularityPoints];
+
+
+/* CalculateAndApplyLateReturnFines: Calculates and applies fines for overdue borrowed resources by updating the member's FineNum. */
+
+    CalculateAndApplyLateReturnFines() 
+ext wr Members : set of Member, rd BorrowedR : seq of BorrowedResource
+pre BorrowedR <> []
+post Members = { if br.DueDate < currentDate 
+                  then let fineAmount = CalculateFine(br.DueDate, currentDate) in 
+                       m in set Members &
+                       m.MemberID = br.BorrowerMember.MemberID => m.FineNum = m.FineNum + fineAmount 
+                  else br.BorrowerMember |
+                br in set BorrowedR };
+
+-- End of Abdallah's operations
